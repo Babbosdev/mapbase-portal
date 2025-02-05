@@ -332,42 +332,44 @@ void CPortal_Player::StopLoopingSounds()
 	BaseClass::StopLoopingSounds();
 }
 
-void CPortal_Player::GiveAllItems( void )
+void CPortal_Player::GiveAllHL2Items(void)
 {
 	EquipSuit();
 
-	CBasePlayer::GiveAmmo( 255,	"Pistol");
-	CBasePlayer::GiveAmmo( 32,	"357" );
+	CBasePlayer::GiveAmmo(255, "Pistol");
+	CBasePlayer::GiveAmmo(32, "357");
 
-	CBasePlayer::GiveAmmo( 255,	"AR2" );
-	CBasePlayer::GiveAmmo( 3,	"AR2AltFire" );
-	CBasePlayer::GiveAmmo( 255,	"SMG1");
-	CBasePlayer::GiveAmmo( 3,	"smg1_grenade");
+	CBasePlayer::GiveAmmo(255, "AR2");
+	CBasePlayer::GiveAmmo(3,   "AR2AltFire");
+	CBasePlayer::GiveAmmo(255, "SMG1");
+	CBasePlayer::GiveAmmo(3,   "smg1_grenade");
 
-	CBasePlayer::GiveAmmo( 255,	"Buckshot");
-	CBasePlayer::GiveAmmo( 16,	"XBowBolt" );
+	CBasePlayer::GiveAmmo(255, "Buckshot");
+	CBasePlayer::GiveAmmo(16,  "XBowBolt");
 
-	CBasePlayer::GiveAmmo( 3,	"rpg_round");
-	CBasePlayer::GiveAmmo( 6,	"grenade" );
+	CBasePlayer::GiveAmmo(3, "rpg_round");
+	CBasePlayer::GiveAmmo(6, "grenade");
 
-	GiveNamedItem( "weapon_crowbar" );
-	GiveNamedItem( "weapon_physcannon" );
+	GiveNamedItem("weapon_crowbar");
+	GiveNamedItem("weapon_physcannon");
 
-	GiveNamedItem( "weapon_pistol" );
-	GiveNamedItem( "weapon_357" );
+	GiveNamedItem("weapon_pistol");
+	GiveNamedItem("weapon_357");
 
-	GiveNamedItem( "weapon_smg1" );
-	GiveNamedItem( "weapon_ar2" );
+	GiveNamedItem("weapon_smg1");
+	GiveNamedItem("weapon_ar2");
 
-	GiveNamedItem( "weapon_shotgun" );
-	GiveNamedItem( "weapon_crossbow" );
+	GiveNamedItem("weapon_shotgun");
+	GiveNamedItem("weapon_crossbow");
 
-	GiveNamedItem( "weapon_rpg" );
-	GiveNamedItem( "weapon_frag" );
+	GiveNamedItem("weapon_rpg");
+	GiveNamedItem("weapon_frag");
 
-	GiveNamedItem( "weapon_bugbait" );
+	GiveNamedItem("weapon_bugbait");
+}
 
-	//GiveNamedItem( "weapon_physcannon" );
+void CPortal_Player::GiveAllPortalItems(void)
+{
 	CWeaponPortalgun *pPortalGun = static_cast<CWeaponPortalgun*>( GiveNamedItem( "weapon_portalgun" ) );
 
 	if ( !pPortalGun )
@@ -1618,10 +1620,19 @@ void CPortal_Player::CheatImpulseCommands( int iImpulse )
 		{
 			if( sv_cheats->GetBool() )
 			{
-				GiveAllItems();
+				GiveAllPortalItems();
 			}
 		}
 		break;
+	// gives all Half-Life 2 Weapons
+	case 102:
+	{
+		if (sv_cheats->GetBool())
+		{
+			GiveAllHL2Items();
+		}
+	}
+	break;
 
 	default:
 		BaseClass::CheatImpulseCommands( iImpulse );

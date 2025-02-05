@@ -44,6 +44,9 @@
 #include "ai_interactions.h"
 #include "rumble_shared.h"
 #include "gamestats.h"
+#ifdef MAPBASE
+#include "mapbase/GlobalStrings.h"
+#endif
 // NVNT haptic utils
 #include "haptics/haptic_utils.h"
 
@@ -67,6 +70,12 @@ ConVar physcannon_ball_cone( "physcannon_ball_cone", "0.997" );
 ConVar physcannon_punt_cone( "physcannon_punt_cone", "0.997" );
 ConVar player_throwforce( "player_throwforce", "1000" );
 ConVar physcannon_dmg_glass( "physcannon_dmg_glass", "15" );
+ConVar physcannon_right_turrets("physcannon_right_turrets", "0");
+
+#ifdef MAPBASE
+ConVar sv_player_enable_propsprint("sv_player_enable_propsprint", "0", FCVAR_NONE, "If enabled, allows the player to sprint while holding a physics object");
+ConVar sv_player_enable_gravgun_sprint("sv_player_enable_gravgun_sprint", "0", FCVAR_NONE, "Enables the player to sprint while holding a phys. object with the gravity gun");
+#endif
 
 extern ConVar hl2_normspeed;
 extern ConVar hl2_walkspeed;
@@ -130,52 +139,57 @@ public:
 		return false;
 	}
 
-	virtual bool ShouldHitEntity( IHandleEntity *pHandleEntity, int contentsMask )
+	virtual bool ShouldHitEntity(IHandleEntity *pHandleEntity, int contentsMask)
 	{
 		// Only skip ourselves (not things we own)
-		if ( pHandleEntity == m_pTraceOwner )
+		if (pHandleEntity == m_pTraceOwner)
 			return false;
 
 		// Get the entity referenced by this handle
-		CBaseEntity *pEntity = EntityFromEntityHandle( pHandleEntity );
-		if ( pEntity == NULL )
+		CBaseEntity *pEntity = EntityFromEntityHandle(pHandleEntity);
+		if (pEntity == NULL)
 			return false;
 
 		// Handle grate entities differently
-		if ( HasContentsGrate( pEntity ) )
+		if (HasContentsGrate(pEntity))
 		{
+#ifdef MAPBASE
+			if (pEntity->CanBePickedUpByPhyscannon())
+				return true;
+#else
 			// See if it's a grabbable physics prop
 			CPhysicsProp *pPhysProp = dynamic_cast<CPhysicsProp *>(pEntity);
-			if ( pPhysProp != NULL )
+			if (pPhysProp != NULL)
 				return pPhysProp->CanBePickedUpByPhyscannon();
 
 			// See if it's a grabbable physics prop
-			if ( FClassnameIs( pEntity, "prop_physics" ) )
+			if (FClassnameIs(pEntity, "prop_physics"))
 			{
 				CPhysicsProp *pPhysProp = dynamic_cast<CPhysicsProp *>(pEntity);
-				if ( pPhysProp != NULL )
+				if (pPhysProp != NULL)
 					return pPhysProp->CanBePickedUpByPhyscannon();
 
 				// Somehow had a classname that didn't match the class!
 				Assert(0);
 			}
-			else if ( FClassnameIs( pEntity, "func_physbox" ) )
+			else if (FClassnameIs(pEntity, "func_physbox"))
 			{
 				// Must be a moveable physbox
 				CPhysBox *pPhysBox = dynamic_cast<CPhysBox *>(pEntity);
-				if ( pPhysBox )
+				if (pPhysBox)
 					return pPhysBox->CanBePickedUpByPhyscannon();
 
 				// Somehow had a classname that didn't match the class!
 				Assert(0);
 			}
+#endif
 
 			// Don't bother with any other sort of grated entity
 			return false;
 		}
 
 		// Use the default rules
-		return BaseClass::ShouldHitEntity( pHandleEntity, contentsMask );
+		return BaseClass::ShouldHitEntity(pHandleEntity, contentsMask);
 	}
 
 protected:
@@ -441,10 +455,12 @@ static void ComputePlayerMatrix( CBasePlayer *pPlayer, matrix3x4_t &out )
 // Purpose: 
 //-----------------------------------------------------------------------------
 // derive from this so we can add save/load data to it
+#ifndef MAPBASE // Moved to weapon_physcannon.h for point_physics_control
 struct game_shadowcontrol_params_t : public hlshadowcontrol_params_t
 {
 	DECLARE_SIMPLE_DATADESC();
 };
+#endif
 
 BEGIN_SIMPLE_DATADESC( game_shadowcontrol_params_t )
 	
@@ -480,6 +496,9 @@ public:
 	float GetLoadWeight( void ) const { return m_flLoadWeight; }
 	void SetAngleAlignment( float alignAngleCosine ) { m_angleAlignment = alignAngleCosine; }
 	void SetIgnorePitch( bool bIgnore ) { m_bIgnoreRelativePitch = bIgnore; }
+#ifdef MAPBASE
+	void SetDontUseListMass(bool bDontUse) { m_bDontUseListMass = bDontUse; }
+#endif
 	QAngle TransformAnglesToPlayerSpace( const QAngle &anglesIn, CBasePlayer *pPlayer );
 	QAngle TransformAnglesFromPlayerSpace( const QAngle &anglesIn, CBasePlayer *pPlayer );
 
@@ -521,6 +540,12 @@ private:
 
 	// NVNT player controlling this grab controller
 	CBasePlayer*	m_pControllingPlayer;
+
+#ifdef MAPBASE
+	// Prevents using the added mass of every part of the object
+	// (not saved due to only being used upon attach)
+	bool			m_bDontUseListMass;
+#endif
 
 	bool			m_bAllowObjectOverhead; // Can the player hold this object directly overhead? (Default is NO)
 
@@ -578,6 +603,9 @@ CGrabController::CGrabController( void )
 	m_flDistanceOffset = 0;
 	// NVNT constructing m_pControllingPlayer to NULL
 	m_pControllingPlayer = NULL;
+#ifdef MAPBASE
+	m_bDontUseListMass = false;
+#endif
 }
 
 CGrabController::~CGrabController( void )
@@ -874,16 +902,22 @@ void CGrabController::AttachEntity( CBasePlayer *pPlayer, CBaseEntity *pEntity, 
 	{
 		flFactor = 1.0f;
 	}
-	for ( int i = 0; i < count; i++ )
+	for (int i = 0; i < count; i++)
 	{
 		float mass = pList[i]->GetMass();
-		pList[i]->GetDamping( NULL, &m_savedRotDamping[i] );
-		m_flLoadWeight += mass;
+		pList[i]->GetDamping(NULL, &m_savedRotDamping[i]);
 		m_savedMass[i] = mass;
 
-		// reduce the mass to prevent the player from adding crazy amounts of energy to the system
-		pList[i]->SetMass( REDUCED_CARRY_MASS / flFactor );
-		pList[i]->SetDamping( NULL, &damping );
+#ifdef MAPBASE
+		if (!m_bDontUseListMass || pList[i] == pPhys)
+#endif
+		{
+			m_flLoadWeight += mass;
+
+			// reduce the mass to prevent the player from adding crazy amounts of energy to the system
+			pList[i]->SetMass(REDUCED_CARRY_MASS / flFactor);
+			pList[i]->SetDamping(NULL, &damping);
+		}
 	}
 
 	// NVNT setting m_pControllingPlayer to the player attached
@@ -915,9 +949,16 @@ void CGrabController::AttachEntity( CBasePlayer *pPlayer, CBaseEntity *pEntity, 
 
 	// If it's a prop, see if it has desired carry angles
 	CPhysicsProp *pProp = dynamic_cast<CPhysicsProp *>(pEntity);
-	if ( pProp )
+	if (pProp)
 	{
-		m_bHasPreferredCarryAngles = pProp->GetPropDataAngles( "preferred_carryangles", m_vecPreferredCarryAngles );
+#ifdef MAPBASE
+		// If the prop has custom carry angles, don't override them
+		// (regular PreferredCarryAngles() code should cover it)
+		if (!pProp->m_bUsesCustomCarryAngles)
+			m_bHasPreferredCarryAngles = pProp->GetPropDataAngles("preferred_carryangles", m_vecPreferredCarryAngles);
+#else
+		m_bHasPreferredCarryAngles = pProp->GetPropDataAngles("preferred_carryangles", m_vecPreferredCarryAngles);
+#endif
 		m_flDistanceOffset = pProp->GetCarryDistanceOffset();
 	}
 	else
@@ -1153,7 +1194,18 @@ void CPlayerPickupController::Init( CBasePlayer *pPlayer, CBaseEntity *pObject )
 	CPortal_Player *pOwner = ToPortalPlayer( pPlayer );
 	if ( pOwner )
 	{
-		pOwner->EnableSprint( false );
+#ifndef MAPBASE
+		pOwner->EnableSprint(false);
+#else
+		if (sv_player_enable_propsprint.GetBool() == false)
+		{
+			pOwner->EnableSprint(false);
+		}
+		else
+		{
+			pOwner->EnableSprint(true);
+		}
+#endif
 	}
 
 	// If the target is debris, convert it to non-debris
@@ -1164,18 +1216,32 @@ void CPlayerPickupController::Init( CBasePlayer *pPlayer, CBaseEntity *pObject )
 	}
 
 	// done so I'll go across level transitions with the player
-	SetParent( pPlayer );
-	m_grabController.SetIgnorePitch( true );
-	m_grabController.SetAngleAlignment( DOT_30DEGREE );
+	SetParent(pPlayer);
+	m_grabController.SetIgnorePitch(true);
+	m_grabController.SetAngleAlignment(DOT_30DEGREE);
 	m_pPlayer = pPlayer;
 	IPhysicsObject *pPhysics = pObject->VPhysicsGetObject();
-	
-	if ( !pOwner->m_bSilentDropAndPickup )
+
+	Pickup_OnPhysGunPickup(pObject, m_pPlayer, PICKED_UP_BY_PLAYER);
+
+#ifdef MAPBASE
+	bool bUseGrabPos = false;
+	Vector vecGrabPos;
+	if (dynamic_cast<CRagdollProp*>(pObject))
 	{
-	Pickup_OnPhysGunPickup( pObject, m_pPlayer, PICKED_UP_BY_PLAYER );
+		m_grabController.SetDontUseListMass(true);
+
+		// Approximate where we're grabbing from
+		vecGrabPos = pPlayer->EyePosition() + (pPlayer->EyeDirection3D() * 16.0f);
+		bUseGrabPos = true;
 	}
-	
-	m_grabController.AttachEntity( pPlayer, pObject, pPhysics, false, vec3_origin, false );
+	else
+		m_grabController.SetDontUseListMass(false);
+
+	m_grabController.AttachEntity(pPlayer, pObject, pPhysics, false, vecGrabPos, bUseGrabPos);
+#else
+	m_grabController.AttachEntity(pPlayer, pObject, pPhysics, false, vec3_origin, false);
+#endif
 #ifdef WIN32
 	// NVNT apply a downward force to simulate the mass of the held object.
 	HapticSetConstantForce(m_pPlayer,clamp(m_grabController.GetLoadWeight()*0.1,1,6)*Vector(0,-1,0));
@@ -1216,10 +1282,17 @@ void CPlayerPickupController::Shutdown( bool bThrown )
 	if ( m_pPlayer )
 	{
 		CPortal_Player *pOwner = ToPortalPlayer( m_pPlayer );
-		if ( pOwner )
+#ifndef MAPBASE
+		if (pOwner)
 		{
-			pOwner->EnableSprint( true );
+			pOwner->EnableSprint(true);
 		}
+#else
+		if (pOwner && sv_player_enable_propsprint.GetBool() == false)
+		{
+			pOwner->EnableSprint(true);
+		}
+#endif
 
 		m_pPlayer->SetUseEntity( NULL );
 		if ( !pOwner->m_bSilentDropAndPickup )
@@ -1298,7 +1371,11 @@ void CPlayerPickupController::Use( CBaseEntity *pActivator, CBaseEntity *pCaller
 
 			((CPortal_Player *)m_pPlayer)->SetHeldObjectOnOppositeSideOfPortal( false );
 			// JAY: Scale this with mass because some small objects really go flying
-			float massFactor = clamp( pPhys->GetMass(), 0.5, 15 );
+#ifdef MAPBASE
+			float massFactor = pPhys ? clamp(pPhys->GetMass(), 0.5, 15) : 7.5;
+#else
+			float massFactor = clamp(pPhys->GetMass(), 0.5, 15);
+#endif
 			massFactor = RemapVal( massFactor, 0.5, 15, 0.5, 4 );
 			vecLaunch *= player_throwforce.GetFloat() * massFactor;
 
@@ -1377,6 +1454,10 @@ public:
 
 	DECLARE_SERVERCLASS();
 	DECLARE_DATADESC();
+
+#ifdef MAPBASE
+	DECLARE_ACTTABLE();
+#endif
 
 	CWeaponPhysCannon( void );
 
@@ -1507,6 +1588,7 @@ protected:
 	int		m_nAttack2Debounce;
 
 	CNetworkVar( bool, m_bIsCurrentlyUpgrading );
+	CNetworkVar(float, m_flTimeForceView);
 
 	float	m_flElementDebounce;
 	float	m_flElementPosition;
@@ -1535,6 +1617,7 @@ protected:
 
 IMPLEMENT_SERVERCLASS_ST(CWeaponPhysCannon, DT_WeaponPhysCannon)
 	SendPropBool( SENDINFO( m_bIsCurrentlyUpgrading ) ),
+	SendPropFloat(SENDINFO(m_flTimeForceView)),
 END_SEND_TABLE()
 
 LINK_ENTITY_TO_CLASS( weapon_physcannon, CWeaponPhysCannon );
@@ -1552,6 +1635,7 @@ BEGIN_DATADESC( CWeaponPhysCannon )
 	DEFINE_FIELD( m_flElementDestination, FIELD_FLOAT ),
 	DEFINE_FIELD( m_nAttack2Debounce, FIELD_INTEGER ),
 	DEFINE_FIELD( m_bIsCurrentlyUpgrading, FIELD_BOOLEAN ),
+	DEFINE_FIELD(m_flTimeForceView, FIELD_TIME),
 	DEFINE_FIELD( m_EffectState, FIELD_INTEGER ),
 
 	DEFINE_AUTO_ARRAY( m_hBeams, FIELD_EHANDLE ),
@@ -1577,6 +1661,29 @@ BEGIN_DATADESC( CWeaponPhysCannon )
 
 END_DATADESC()
 
+#ifdef MAPBASE
+acttable_t CWeaponPhysCannon::m_acttable[] =
+{
+	// HL2:DM activities (for third-person animations in SP)
+	{ ACT_HL2MP_IDLE, ACT_HL2MP_IDLE_PHYSGUN, false },
+	{ ACT_HL2MP_RUN, ACT_HL2MP_RUN_PHYSGUN, false },
+	{ ACT_HL2MP_IDLE_CROUCH, ACT_HL2MP_IDLE_CROUCH_PHYSGUN, false },
+	{ ACT_HL2MP_WALK_CROUCH, ACT_HL2MP_WALK_CROUCH_PHYSGUN, false },
+	{ ACT_HL2MP_GESTURE_RANGE_ATTACK, ACT_HL2MP_GESTURE_RANGE_ATTACK_PHYSGUN, false },
+	{ ACT_HL2MP_GESTURE_RELOAD, ACT_HL2MP_GESTURE_RELOAD_PHYSGUN, false },
+	{ ACT_HL2MP_JUMP, ACT_HL2MP_JUMP_PHYSGUN, false },
+	{ ACT_RANGE_ATTACK1, ACT_RANGE_ATTACK_SLAM, false },
+#if EXPANDED_HL2DM_ACTIVITIES
+	{ ACT_HL2MP_WALK, ACT_HL2MP_WALK_PHYSGUN, false },
+	{ ACT_HL2MP_GESTURE_RANGE_ATTACK2, ACT_HL2MP_GESTURE_RANGE_ATTACK2_PHYSGUN, false },
+#endif
+
+	{ ACT_ARM, ACT_ARM_RIFLE, false },
+	{ ACT_DISARM, ACT_DISARM_RIFLE, false },
+};
+
+IMPLEMENT_ACTTABLE(CWeaponPhysCannon);
+#endif
 
 enum
 {
@@ -1676,6 +1783,8 @@ void CWeaponPhysCannon::Spawn( void )
 	{
 		m_nSkin = MEGACANNON_SKIN;
 	}
+
+	m_flTimeForceView = -1;
 }
 
 
@@ -1858,6 +1967,9 @@ void CWeaponPhysCannon::DryFire( void )
 	if ( pOwner )
 	{
 		pOwner->RumbleEffect( RUMBLE_PISTOL, 0, RUMBLE_FLAG_RESTART );
+#ifdef MAPBASE // TODO: Is this animation too dramatic?
+		pOwner->SetAnimation(PLAYER_ATTACK1);
+#endif
 	}
 }
 
@@ -1914,6 +2026,12 @@ void CWeaponPhysCannon::PuntNonVPhysics( CBaseEntity *pEntity, const Vector &for
 
 	PrimaryFireEffect();
 	SendWeaponAnim( ACT_VM_SECONDARYATTACK );
+
+#ifdef MAPBASE
+	CBasePlayer *pPlayer = ToBasePlayer(GetOwner());
+	if (pPlayer)
+		pPlayer->SetAnimation(PLAYER_ATTACK1);
+#endif
 
 	m_nChangeState = ELEMENT_STATE_CLOSED;
 	m_flElementDebounce = gpGlobals->curtime + 0.5f;
@@ -2064,6 +2182,10 @@ void CWeaponPhysCannon::PuntVPhysics( CBaseEntity *pEntity, const Vector &vecFor
 	PrimaryFireEffect();
 	SendWeaponAnim( ACT_VM_SECONDARYATTACK );
 
+#ifdef MAPBASE
+	pOwner->SetAnimation(PLAYER_ATTACK1);
+#endif
+
 	m_nChangeState = ELEMENT_STATE_CLOSED;
 	m_flElementDebounce = gpGlobals->curtime + 0.5f;
 	m_flCheckSuppressTime = gpGlobals->curtime + 0.25f;
@@ -2182,6 +2304,10 @@ void CWeaponPhysCannon::PuntRagdoll( CBaseEntity *pEntity, const Vector &vecForw
 	PrimaryFireEffect();
 	SendWeaponAnim( ACT_VM_SECONDARYATTACK );
 
+#ifdef MAPBASE
+	pOwner->SetAnimation(PLAYER_ATTACK1);
+#endif
+
 	m_nChangeState = ELEMENT_STATE_CLOSED;
 	m_flElementDebounce = gpGlobals->curtime + 0.5f;
 	m_flCheckSuppressTime = gpGlobals->curtime + 0.25f;
@@ -2223,17 +2349,22 @@ bool CWeaponPhysCannon::EntityAllowsPunts( CBaseEntity *pEntity )
 		}
 	}
 
-	if ( pEntity->HasSpawnFlags( SF_WEAPON_NO_PHYSCANNON_PUNT ) )
+	if (pEntity->HasSpawnFlags(SF_WEAPON_NO_PHYSCANNON_PUNT))
 	{
+#ifdef MAPBASE
+		if (pEntity->IsBaseCombatWeapon() || pEntity->IsCombatItem())
+			return false;
+#else
 		CBaseCombatWeapon *pWeapon = dynamic_cast<CBaseCombatWeapon*>(pEntity);
 
-		if ( pWeapon != NULL )
+		if (pWeapon != NULL)
 		{
-			if ( pWeapon->HasSpawnFlags( SF_WEAPON_NO_PHYSCANNON_PUNT ) )
+			if (pWeapon->HasSpawnFlags(SF_WEAPON_NO_PHYSCANNON_PUNT))
 			{
 				return false;
 			}
 		}
+#endif
 	}
 
 	return true;
@@ -2282,6 +2413,9 @@ void CWeaponPhysCannon::PrimaryAttack( void )
 
 		PrimaryFireEffect();
 		SendWeaponAnim( ACT_VM_SECONDARYATTACK );
+#ifdef MAPBASE
+		pOwner->SetAnimation(PLAYER_ATTACK1);
+#endif
 		return;
 	}
 
@@ -2572,13 +2706,30 @@ bool CWeaponPhysCannon::AttachObject( CBaseEntity *pObject, const Vector &vPosit
 		// NVNT set the players constant force to simulate holding mass
 		HapticSetConstantForce(pOwner,clamp(m_grabController.GetLoadWeight()*0.05,1,5)*Vector(0,-1,0));
 #endif
-		pOwner->EnableSprint( false );
+#ifndef MAPBASE
+		pOwner->EnableSprint(false);
 
-		float	loadWeight = ( 1.0f - GetLoadPercentage() );
-		float	maxSpeed = hl2_walkspeed.GetFloat() + ( ( hl2_normspeed.GetFloat() - hl2_walkspeed.GetFloat() ) * loadWeight );
+		float	loadWeight = (1.0f - GetLoadPercentage());
+		float	maxSpeed = hl2_walkspeed.GetFloat() + ((hl2_normspeed.GetFloat() - hl2_walkspeed.GetFloat()) * loadWeight);
 
 		//Msg( "Load perc: %f -- Movement speed: %f/%f\n", loadWeight, maxSpeed, hl2_normspeed.GetFloat() );
-		pOwner->SetMaxSpeed( maxSpeed );
+		pOwner->SetMaxSpeed(maxSpeed);
+#else
+		if (sv_player_enable_gravgun_sprint.GetBool() == false)
+		{
+			pOwner->EnableSprint(false);
+
+			float	loadWeight = (1.0f - GetLoadPercentage());
+			float	maxSpeed = hl2_walkspeed.GetFloat() + ((hl2_normspeed.GetFloat() - hl2_walkspeed.GetFloat()) * loadWeight);
+
+			//Msg( "Load perc: %f -- Movement speed: %f/%f\n", loadWeight, maxSpeed, hl2_normspeed.GetFloat() );
+			pOwner->SetMaxSpeed(maxSpeed);
+		}
+		else
+		{
+			pOwner->EnableSprint(true);
+		}
+#endif
 	}
 
 	// Don't drop again for a slight delay, in case they were pulling objects near them
@@ -2593,6 +2744,27 @@ bool CWeaponPhysCannon::AttachObject( CBaseEntity *pObject, const Vector &vPosit
 		(CSoundEnvelopeController::GetController()).SoundChangePitch( GetMotorSound(), 100, 0.5f );
 		(CSoundEnvelopeController::GetController()).SoundChangeVolume( GetMotorSound(), 0.8f, 0.5f );
 	}
+
+#if defined(HL2_DLL)
+#ifdef MAPBASE
+	if (physcannon_right_turrets.GetBool() && EntIsClass(pObject, gm_isz_class_FloorTurret))
+#else
+	if (physcannon_right_turrets.GetBool() && pObject->ClassMatches("npc_turret_floor"))
+#endif
+	{
+		// We just picked up a turret. Is it already upright?
+		Vector vecUp;
+		Vector vecTrueUp(0, 0, 1);
+		pObject->GetVectors(NULL, NULL, &vecUp);
+		float flDot = DotProduct(vecUp, vecTrueUp);
+
+		if (flDot < 0.5f)
+		{
+			// The turret is NOT upright, so have the client help us by raising up the player's view.
+			m_flTimeForceView = gpGlobals->curtime + 1.0f;
+		}
+	}
+#endif
 
 	return true;
 }
@@ -3130,18 +3302,26 @@ void CWeaponPhysCannon::DetachObject( bool playSound, bool wasLaunched )
 		return;
 
 	CPortal_Player *pOwner = (CPortal_Player *)ToBasePlayer( GetOwner() );
-	if( pOwner != NULL )
+	if (pOwner != NULL)
 	{
+#ifndef MAPBASE
 		pOwner->EnableSprint( true );
 		pOwner->SetMaxSpeed( hl2_normspeed.GetFloat() );
-		pOwner->SetHeldObjectOnOppositeSideOfPortal( false );
-		if( wasLaunched )
+
+#else
+		if (sv_player_enable_gravgun_sprint.GetBool() == false)
 		{
-			pOwner->RumbleEffect( RUMBLE_357, 0, RUMBLE_FLAG_RESTART );
+			pOwner->EnableSprint(true);
+			pOwner->SetMaxSpeed(hl2_normspeed.GetFloat());
 		}
-#ifdef WIN32
+#endif		
+		if (wasLaunched)
+		{
+			pOwner->RumbleEffect(RUMBLE_357, 0, RUMBLE_FLAG_RESTART);
+		}
+#if defined( WIN32 ) && !defined( _X360 )
 		// NVNT clear constant force
-		HapticSetConstantForce(pOwner,Vector(0,0,0));
+		HapticSetConstantForce(pOwner, Vector(0, 0, 0));
 #endif
 	}
 
@@ -3538,6 +3718,15 @@ void CWeaponPhysCannon::ItemPostFrame()
 		return;
 	}
 
+#ifdef MAPBASE
+	if (pOwner->HasSpawnFlags(SF_PLAYER_SUPPRESS_FIRING))
+	{
+		m_nAttack2Debounce = 0;
+		WeaponIdle();
+		return;
+	}
+#endif
+
 	//Check for object in pickup range
 	if ( m_bActive == false )
 	{
@@ -3709,6 +3898,12 @@ bool CWeaponPhysCannon::CanPickupObject( CBaseEntity *pTarget )
 	CBasePlayer *pOwner = ToBasePlayer( GetOwner() );
 	if ( pOwner && pOwner->GetGroundEntity() == pTarget )
 		return false;
+
+#ifdef MAPBASE
+	// The gravity gun can't pick up vehicles.
+	if (pTarget->GetServerVehicle())
+		return false;
+#endif
 
 	if ( !IsMegaPhysCannon() )
 	{

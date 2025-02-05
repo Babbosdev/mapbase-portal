@@ -22,12 +22,15 @@ public:
 	DECLARE_PREDICTABLE();
 
 	virtual int DrawModel( int flags );
+	virtual void ClientThink( void );
 
 private:
 
-	bool	SetupEmitter( void );
+	bool	SetupEmitter(void);
 
 	bool	m_bIsCurrentlyUpgrading;
+	float	m_flTimeForceView;
+	float	m_flTimeIgnoreForceView;
 	bool	m_bWasUpgraded;
 
 	CSmartPtr<CLocalSpaceEmitter>	m_pLocalEmitter;
@@ -39,14 +42,16 @@ STUB_WEAPON_CLASS_IMPLEMENT( weapon_physcannon, C_WeaponPhysCannon );
 
 IMPLEMENT_CLIENTCLASS_DT( C_WeaponPhysCannon, DT_WeaponPhysCannon, CWeaponPhysCannon )
 	RecvPropBool( RECVINFO( m_bIsCurrentlyUpgrading ) ),
+	RecvPropFloat(RECVINFO(m_flTimeForceView)),
 END_RECV_TABLE()
 
 //-----------------------------------------------------------------------------
 // Constructor
 //-----------------------------------------------------------------------------
-C_WeaponPhysCannon::C_WeaponPhysCannon( void )
+C_WeaponPhysCannon::C_WeaponPhysCannon(void)
 {
 	m_bWasUpgraded = false;
+	m_flTimeIgnoreForceView = -1;
 }
 
 //-----------------------------------------------------------------------------
@@ -386,3 +391,39 @@ int C_WeaponPhysCannon::DrawModel( int flags )
 	return BaseClass::DrawModel( flags );
 }
 
+//---------------------------------------------------------
+// On 360, raise up the player's view if the server has
+// asked us to.
+//---------------------------------------------------------
+#define PHYSCANNON_RAISE_VIEW_GOAL	0.0f
+void C_WeaponPhysCannon::ClientThink(void)
+{
+	if (m_flTimeIgnoreForceView > gpGlobals->curtime)
+		return;
+
+	float flTime = (m_flTimeForceView - gpGlobals->curtime);
+
+	if (flTime < 0.0f)
+		return;
+
+	float flDT = 1.0f - flTime;
+	if (flDT > 0.0f)
+	{
+		QAngle viewangles;
+		engine->GetViewAngles(viewangles);
+
+		if (viewangles.x > PHYSCANNON_RAISE_VIEW_GOAL + 1.0f)
+		{
+			float flDelta = PHYSCANNON_RAISE_VIEW_GOAL - viewangles.x;
+			viewangles.x += (flDelta * flDT);
+			engine->SetViewAngles(viewangles);
+		}
+		else
+		{
+			// We've reached our goal. Ignore the forced view angles for now.
+			m_flTimeIgnoreForceView = m_flTimeForceView + 0.1f;
+		}
+	}
+
+	return BaseClass::ClientThink();
+}

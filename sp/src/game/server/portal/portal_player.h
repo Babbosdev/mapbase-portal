@@ -119,7 +119,8 @@ public:
 
 	void CheatImpulseCommands( int iImpulse );
 	void CreateRagdollEntity( const CTakeDamageInfo &info );
-	void GiveAllItems( void );
+	void GiveAllPortalItems( void );
+	void GiveAllHL2Items(void);
 	void GiveDefaultItems( void );
 
 	void NoteWeaponFired( void );

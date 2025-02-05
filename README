@@ -1,5 +1,22 @@
 //=========================================================================================================================
 
+               Project mapbase-portal
+	https://github.com/Babbosdev/mapbase-portal
+	
+//=========================================================================================================================
+
+>>>>>>>> EXTERNAL CONTENT USED <<<<<<<<
+
+THIS REPO USES PORTAL CODE FROM THE 2018 TF2 SOURCE LEAK SO YOU CAN'T USE THIS REPO FOR COMMERCIAL PURPORSES.
+
+1. Uses the leaked code found in this repository
+https://github.com/conneath/portal-base
+
+2. For portal_player.cpp (find "#ifdef NEW_RESPONSE_SYSTEM") 
+https://github.com/WonderlandWar/Portal-Swarm
+
+//=========================================================================================================================
+
                Mapbase v7.3 - Source 2013
 	https://github.com/mapbase-source/source-sdk-2013
 		https://www.moddb.com/mods/mapbase
