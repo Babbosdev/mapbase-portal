@@ -9,7 +9,7 @@
 
 THIS REPO USES PORTAL CODE FROM THE 2018 TF2 SOURCE LEAK SO YOU CAN'T USE THIS REPO FOR COMMERCIAL PURPORSES.
 
-1. Uses the leaked code found in this repository
+1. Uses the leaked code found in this repository (Is now dead link)
 https://github.com/conneath/portal-base
 
 2. For portal_player.cpp (find "#ifdef NEW_RESPONSE_SYSTEM") 
@@ -250,7 +250,7 @@ THIS DOCUMENT DESCRIBES A CONTRACT BETWEEN YOU AND VALVE
 CORPORATION ("Valve").  PLEASE READ IT BEFORE DOWNLOADING OR USING 
 THE SOURCE ENGINE SDK ("SDK"). BY DOWNLOADING AND/OR USING THE 
 SOURCE ENGINE SDK YOU ACCEPT THIS LICENSE. IF YOU DO NOT AGREE TO 
-THE TERMS OF THIS LICENSE PLEASE DON’T DOWNLOAD OR USE THE SDK.  
+THE TERMS OF THIS LICENSE PLEASE DONÂ’T DOWNLOAD OR USE THE SDK.  
 
   You may, free of charge, download and use the SDK to develop a modified Valve game 
 running on the Source engine.  You may distribute your modified Valve game in source and 
